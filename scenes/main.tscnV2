@@ -1,0 +1,495 @@
+
+extends Node2D
+
+# =========================
+# 暗影纪元：神域之战
+# 核心战斗系统
+# =========================
+
+var player := Vector2.ZERO
+var enemy := Vector2.ZERO
+
+var player_hp := 100
+var enemy_hp := 100
+
+var player_max_hp := 100
+var enemy_max_hp := 100
+
+var player_speed := 230.0
+var enemy_speed := 75.0
+
+var joystick := Vector2.ZERO
+var joystick_origin := Vector2.ZERO
+var move_touch_id := -1
+
+var attack_held := false
+var attack_cooldown := 0.0
+var attack_interval := 0.45
+
+var hit_flash := 0.0
+var attack_effect := 0.0
+var attack_direction := Vector2.RIGHT
+
+var game_over := false
+var victory := false
+
+var message := "击败暗影魔物！"
+
+
+func _ready():
+    restart_game()
+
+
+func restart_game():
+    var size := get_viewport_rect().size
+
+    player = size / 2.0
+    enemy = player + Vector2(180, -100)
+
+    player_hp = player_max_hp
+    enemy_hp = enemy_max_hp
+
+    joystick = Vector2.ZERO
+    move_touch_id = -1
+    attack_held = false
+
+    attack_cooldown = 0.0
+    hit_flash = 0.0
+    attack_effect = 0.0
+
+    game_over = false
+    victory = false
+
+    message = "击败暗影魔物！"
+
+    queue_redraw()
+
+
+func _process(delta):
+    if game_over:
+        queue_redraw()
+        return
+
+    attack_cooldown = maxf(0.0, attack_cooldown - delta)
+    hit_flash = maxf(0.0, hit_flash - delta)
+    attack_effect = maxf(0.0, attack_effect - delta)
+
+    update_player(delta)
+    update_enemy(delta)
+    update_combat()
+
+    queue_redraw()
+
+
+# =========================
+# 主角移动
+# =========================
+
+func update_player(delta):
+    var direction := Input.get_vector(
+        "ui_left",
+        "ui_right",
+        "ui_up",
+        "ui_down"
+    )
+
+    if joystick.length() > 0.1:
+        direction = joystick
+
+    if direction.length() > 1.0:
+        direction = direction.normalized()
+
+    if direction.length() > 0.1:
+        attack_direction = direction.normalized()
+
+    player += direction * player_speed * delta
+
+    var size := get_viewport_rect().size
+
+    player.x = clampf(player.x, 30.0, size.x - 30.0)
+    player.y = clampf(player.y, 120.0, size.y - 35.0)
+
+
+# =========================
+# 怪物追击
+# =========================
+
+func update_enemy(delta):
+    if enemy_hp <= 0:
+        return
+
+    var direction := player - enemy
+    var distance := direction.length()
+
+    if distance > 48.0:
+        enemy += direction.normalized() * enemy_speed * delta
+
+    # 怪物靠近时造成伤害
+    if distance < 48.0:
+        player_hp = max(0, player_hp - int(12.0 * delta))
+
+        if player_hp <= 0:
+            game_over = true
+            victory = false
+            message = "挑战失败！点击重新开始"
+
+
+# =========================
+# 攻击系统
+# =========================
+
+func update_combat():
+    if not attack_held:
+        return
+
+    if attack_cooldown > 0.0:
+        return
+
+    attack_cooldown = attack_interval
+    attack_effect = 0.18
+
+    var direction := enemy - player
+
+    if direction.length() < 115.0:
+        if direction.length() > 0.1:
+            attack_direction = direction.normalized()
+
+        enemy_hp = max(0, enemy_hp - 20)
+
+        hit_flash = 0.15
+        message = "攻击命中！造成20点伤害！"
+
+        if enemy_hp <= 0:
+            victory = true
+            game_over = true
+            message = "胜利！暗影魔物已被击败！"
+    else:
+        message = "距离太远，无法命中！"
+
+
+# =========================
+# 手机触摸操作
+# =========================
+
+func _input(event):
+    if event is InputEventScreenTouch:
+        if event.pressed:
+            if event.position.x < get_viewport_rect().size.x * 0.55:
+                move_touch_id = event.index
+                joystick_origin = event.position
+                joystick = Vector2.ZERO
+            else:
+                attack_held = true
+
+        else:
+            if event.index == move_touch_id:
+                move_touch_id = -1
+                joystick = Vector2.ZERO
+            elif event.position.x >= get_viewport_rect().size.x * 0.55:
+                attack_held = false
+
+    elif event is InputEventScreenDrag:
+        if event.index == move_touch_id:
+            joystick = (
+                event.position - joystick_origin
+            ).limit_length(55.0) / 55.0
+
+    elif event is InputEventMouseButton:
+        if event.pressed:
+            if event.position.x < get_viewport_rect().size.x * 0.55:
+                joystick_origin = event.position
+                move_touch_id = -2
+            else:
+                attack_held = true
+        else:
+            if move_touch_id == -2:
+                move_touch_id = -1
+                joystick = Vector2.ZERO
+            attack_held = false
+
+    elif event is InputEventMouseMotion:
+        if move_touch_id == -2:
+            joystick = (
+                event.position - joystick_origin
+            ).limit_length(55.0) / 55.0
+
+
+# =========================
+# 游戏画面绘制
+# =========================
+
+func _draw():
+    var size := get_viewport_rect().size
+
+    # 地面
+    draw_rect(
+        Rect2(Vector2.ZERO, size),
+        Color("#172b28")
+    )
+
+    # 像素风地砖
+    for x in range(-200, int(size.x) + 200, 80):
+        for y in range(100, int(size.y) + 100, 80):
+            var p := Vector2(x + (y % 160) / 2, y)
+
+            var diamond := PackedVector2Array([
+                p + Vector2(0, -40),
+                p + Vector2(40, 0),
+                p + Vector2(0, 40),
+                p + Vector2(-40, 0)
+            ])
+
+            draw_colored_polygon(
+                diamond,
+                Color("#24433a")
+            )
+
+    # 怪物
+    if enemy_hp > 0:
+        draw_enemy()
+
+    # 主角
+    draw_player()
+
+    # 战斗界面
+    draw_ui()
+
+    # 攻击特效
+    if attack_effect > 0.0:
+        var effect_position := player + attack_direction * 48.0
+
+        draw_arc(
+            effect_position,
+            36.0,
+            -1.5,
+            1.5,
+            20,
+            Color("#55ddff"),
+            5.0
+        )
+
+
+func draw_player():
+    var body_color := Color("#2476cf")
+
+    if hit_flash > 0.0:
+        body_color = Color.WHITE
+
+    # 身体
+    draw_rect(
+        Rect2(
+            player - Vector2(12, 10),
+            Vector2(24, 30)
+        ),
+        body_color
+    )
+
+    # 脸部
+    draw_rect(
+        Rect2(
+            player - Vector2(10, 30),
+            Vector2(20, 20)
+        ),
+        Color("#f1c28b")
+    )
+
+    # 头发
+    draw_rect(
+        Rect2(
+            player - Vector2(11, 34),
+            Vector2(22, 8)
+        ),
+        Color("#202030")
+    )
+
+    # 灵力光环
+    draw_circle(
+        player + Vector2(0, -23),
+        5.0,
+        Color("#55aaff")
+    )
+
+
+func draw_enemy():
+    var enemy_color := Color("#542c83")
+
+    if hit_flash > 0.0:
+        enemy_color = Color("#e5caff")
+
+    # 怪物身体
+    draw_rect(
+        Rect2(
+            enemy - Vector2(13, 20),
+            Vector2(26, 30)
+        ),
+        enemy_color
+    )
+
+    # 怪物头部
+    draw_rect(
+        Rect2(
+            enemy - Vector2(9, 30),
+            Vector2(18, 15)
+        ),
+        Color("#a34aff")
+    )
+
+    # 眼睛
+    draw_rect(
+        Rect2(
+            enemy + Vector2(-6, -25),
+            Vector2(4, 4)
+        ),
+        Color.RED
+    )
+
+    draw_rect(
+        Rect2(
+            enemy + Vector2(2, -25),
+            Vector2(4, 4)
+        ),
+        Color.RED
+    )
+
+    # 怪物血条背景
+    draw_rect(
+        Rect2(
+            enemy - Vector2(18, 55),
+            Vector2(36, 5)
+        ),
+        Color("#222222")
+    )
+
+    # 怪物血条
+    draw_rect(
+        Rect2(
+            enemy - Vector2(18, 55),
+            Vector2(36.0 * enemy_hp / enemy_max_hp, 5)
+        ),
+        Color("#ff4545")
+    )
+
+
+# =========================
+# 状态栏和操作按钮
+# =========================
+
+func draw_ui():
+    var size := get_viewport_rect().size
+
+    draw_rect(
+        Rect2(15, 15, size.x - 30, 75),
+        Color("#101827")
+    )
+
+    draw_string(
+        ThemeDB.fallback_font,
+        Vector2(28, 43),
+        "SHADOW ERA",
+        HORIZONTAL_ALIGNMENT_LEFT,
+        -1,
+        22,
+        Color.WHITE
+    )
+
+    draw_string(
+        ThemeDB.fallback_font,
+        Vector2(28, 72),
+        "HP: %d / %d" % [player_hp, player_max_hp],
+        HORIZONTAL_ALIGNMENT_LEFT,
+        -1,
+        17,
+        Color("#55ff88")
+    )
+
+    draw_string(
+        ThemeDB.fallback_font,
+        Vector2(15, 112),
+        message,
+        HORIZONTAL_ALIGNMENT_LEFT,
+        -1,
+        16,
+        Color.WHITE
+    )
+
+    # 左侧虚拟摇杆
+    var joy_pos := Vector2(85, size.y - 100)
+
+    if move_touch_id != -1:
+        joy_pos = joystick_origin
+
+    draw_circle(
+        joy_pos,
+        43,
+        Color("#657b8990")
+    )
+
+    draw_circle(
+        joy_pos + joystick * 27.0,
+        17,
+        Color("#d5eaff")
+    )
+
+    # 右侧攻击按钮
+    var attack_pos := Vector2(size.x - 85, size.y - 105)
+
+    draw_circle(
+        attack_pos,
+        48,
+        Color("#b34242")
+    )
+
+    draw_string(
+        ThemeDB.fallback_font,
+        attack_pos + Vector2(-27, 7),
+        "攻击",
+        HORIZONTAL_ALIGNMENT_LEFT,
+        -1,
+        21,
+        Color.WHITE
+    )
+
+    # 战斗结束提示
+    if game_over:
+        draw_rect(
+            Rect2(
+                size / 2.0 - Vector2(145, 55),
+                Vector2(290, 110)
+            ),
+            Color("#101827")
+        )
+
+        draw_string(
+            ThemeDB.fallback_font,
+            size / 2.0 + Vector2(-90, -10),
+            "胜利！" if victory else "挑战失败",
+            HORIZONTAL_ALIGNMENT_LEFT,
+            -1,
+            28,
+            Color("#ffe080")
+        )
+
+        draw_string(
+            ThemeDB.fallback_font,
+            size / 2.0 + Vector2(-110, 28),
+            "点击屏幕重新开始",
+            HORIZONTAL_ALIGNMENT_LEFT,
+            -1,
+            17,
+            Color.WHITE
+        )
+
+
+# =========================
+# 结束后点击重新开始
+# =========================
+
+func _unhandled_input(event):
+    if not game_over:
+        return
+
+    if event is InputEventScreenTouch and event.pressed:
+        restart_game()
+
+    elif event is InputEventMouseButton and event.pressed:
+        restart_game()
