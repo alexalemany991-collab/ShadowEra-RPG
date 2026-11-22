@@ -1,0 +1,30 @@
+
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Game APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Build Android APK
+        uses: docker://barichello/godot-ci:4.3.0
+        with:
+          args: >
+            godot --headless
+            --path .
+            --export-debug "Android"
+            build/ShadowEra-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShadowEra-Android
+          path: build/ShadowEra-debug.apk
+          if-no-files-found: error
